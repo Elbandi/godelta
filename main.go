@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/gob"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ var (
 	sourcefilePath = flag.String("file", "", "File path for base file, REQUIRED ")
 	infilePath     = flag.String("in", "", "File path for input file")
 	outfilePath    = flag.String("out", "", "File path for output file")
+	debug          = flag.Bool("debug", false, "debug mode")
 	//blockSz = flag.Uint64("blocksz", 2*1024, "Block Size, default block size is 2KB")
 )
 
@@ -47,6 +49,9 @@ func generateFingerprint(ctx context.Context) {
 			log.Fatalf("godelta: checksum error: %#v\n", c.Error)
 		}
 
+		if *debug {
+			log.Printf("chunk %05d: %08x, %s", c.Index, c.Weak, hex.Dump(c.Strong))
+		}
 		err = enc.Encode(c)
 		if err != nil {
 			os.Remove(fpFile.Name())
@@ -95,7 +100,13 @@ func makeDiff(ctx context.Context) {
 			sigsCh <- b
 		}
 	}()
+	if *debug {
+		log.Println("Create lookup table")
+	}
 	cacheSigs, err := gsync.LookUpTable(ctx, sigsCh)
+	if *debug {
+		log.Println("Lookup table loaded")
+	}
 
 	var inFile, outFile *os.File
 	if *infilePath != "" {
@@ -122,6 +133,7 @@ func makeDiff(ctx context.Context) {
 	opsCh, err := gsync.Sync(ctx, inFile, nil, cacheSigs)
 
 	enc := gob.NewEncoder(outFile)
+	index := uint64(0)
 	for o := range opsCh {
 		select {
 		case <-ctx.Done():
@@ -139,6 +151,9 @@ func makeDiff(ctx context.Context) {
 			}
 			log.Fatalf("godelta: patch error: %#v\n", o.Error)
 		}
+		if *debug {
+			log.Printf("chunk %20d: %d / %d", index, o.Index, len(o.Data))
+		}
 		err = enc.Encode(o)
 		if err != nil {
 			if *outfilePath != "" {
@@ -146,6 +161,7 @@ func makeDiff(ctx context.Context) {
 			}
 			log.Fatalf("godelta: patch error: %#v\n", err)
 		}
+		index++
 	}
 }
 
