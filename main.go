@@ -9,7 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"github.com/c4milo/gsync"
+	"github.com/Elbandi/gsync"
 )
 
 var (
@@ -17,7 +17,7 @@ var (
 	infilePath     = flag.String("in", "", "File path for input file")
 	outfilePath    = flag.String("out", "", "File path for output file")
 	debug          = flag.Bool("debug", false, "debug mode")
-	//blockSz = flag.Uint64("blocksz", 2*1024, "Block Size, default block size is 2KB")
+	blockSize      = flag.Int64("blocksize", 6*1024, "Block Size, default block size is 6KB")
 )
 
 func generateFingerprint(ctx context.Context) {
@@ -239,6 +239,12 @@ func main() {
 		flag.Usage()
 		return
 	}
+	if *blockSize < 1024 {
+		fmt.Println("Invalid block size, must be more than 1024")
+		flag.Usage()
+		return
+	}
+	gsync.BlockSize = *blockSize
 
 	//ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
