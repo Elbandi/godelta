@@ -9,13 +9,16 @@ import (
 	"io"
 	"log"
 	"os"
+	"time"
 	"github.com/Elbandi/gsync"
+	"gopkg.in/cheggaaa/pb.v1"
 )
 
 var (
 	sourcefilePath = flag.String("file", "", "File path for base file, REQUIRED ")
 	infilePath     = flag.String("in", "", "File path for input file")
 	outfilePath    = flag.String("out", "", "File path for output file")
+	progress       = flag.Bool("progress", false, "Show progress bar")
 	debug          = flag.Bool("debug", false, "debug mode")
 	blockSize      = flag.Int64("blocksize", 6*1024, "Block Size, default block size is 6KB")
 )
@@ -32,6 +35,22 @@ func generateFingerprint(ctx context.Context) {
 		log.Fatal(err)
 	}
 	defer fpFile.Close()
+
+	if *debug {
+		log.Println("Create fingerprint for", *sourcefilePath)
+	}
+	fi, err := srcFile.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+	bar := pb.New64(fi.Size() / *blockSize)
+	bar.SetRefreshRate(time.Second)
+	if *progress {
+		bar.Output = os.Stderr
+	} else {
+		bar.NotPrint = true
+	}
+	bar.Start()
 
 	enc := gob.NewEncoder(fpFile)
 	sigsCh, err := gsync.Signatures(ctx, srcFile, nil)
@@ -57,6 +76,11 @@ func generateFingerprint(ctx context.Context) {
 			os.Remove(fpFile.Name())
 			log.Fatalf("godelta: checksum error: %#v\n", err)
 		}
+		bar.Increment()
+	}
+	bar.Finish()
+	if *debug {
+		log.Println("Done")
 	}
 }
 
@@ -66,6 +90,19 @@ func makeDiff(ctx context.Context) {
 		log.Fatal(err)
 	}
 	defer fpFile.Close()
+
+	fi, err := fpFile.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+	bar := pb.New64(fi.Size() / *blockSize)
+	bar.SetRefreshRate(time.Second)
+	if *progress {
+		bar.Output = os.Stderr
+	} else {
+		bar.NotPrint = true
+	}
+	bar.Start()
 
 	fpDecoder := gob.NewDecoder(fpFile)
 	sigsCh := make(chan gsync.BlockSignature)
@@ -98,12 +135,14 @@ func makeDiff(ctx context.Context) {
 				return
 			}
 			sigsCh <- b
+			bar.Increment()
 		}
 	}()
 	if *debug {
 		log.Println("Create lookup table")
 	}
 	cacheSigs, err := gsync.LookUpTable(ctx, sigsCh)
+	bar.Finish()
 	if *debug {
 		log.Println("Lookup table loaded")
 	}
@@ -116,8 +155,14 @@ func makeDiff(ctx context.Context) {
 			return
 		}
 		defer inFile.Close()
+		fi, err := fpFile.Stat()
+		if err != nil {
+			log.Fatal(err)
+		}
+		bar.SetTotal64(fi.Size() / *blockSize)
 	} else {
 		inFile = os.Stdin
+		bar.SetTotal64(0);
 	}
 
 	if *outfilePath != "" {
@@ -131,8 +176,28 @@ func makeDiff(ctx context.Context) {
 		outFile = os.Stdout
 	}
 	opsCh, err := gsync.Sync(ctx, inFile, nil, cacheSigs)
+	if err != nil {
+		if *outfilePath != "" {
+			os.Remove(*outfilePath)
+		}
+		log.Fatalf("godelta: patch error: %#v\n", err)
+	}
+
+	if *debug {
+		log.Println("Create block diff")
+	}
+	bar.Set(0)
+	bar.Start()
 
 	enc := gob.NewEncoder(outFile)
+	err = enc.Encode(bar.Total)
+	if err != nil {
+		if *outfilePath != "" {
+			os.Remove(*outfilePath)
+		}
+		log.Fatalf("godelta: patch error: %#v\n", err)
+	}
+
 	index := uint64(0)
 	for o := range opsCh {
 		select {
@@ -162,6 +227,11 @@ func makeDiff(ctx context.Context) {
 			log.Fatalf("godelta: patch error: %#v\n", err)
 		}
 		index++
+		bar.Increment()
+	}
+	bar.Finish()
+	if *debug {
+		log.Println("done")
 	}
 }
 
@@ -194,7 +264,25 @@ func applyPatch(ctx context.Context) {
 		outFile = os.Stdout
 	}
 
+	bar := pb.New64(0)
+	bar.SetRefreshRate(time.Second)
+	if *progress {
+		bar.Output = os.Stderr
+	} else {
+		bar.NotPrint = true
+	}
 	opsDecoder := gob.NewDecoder(inFile)
+	err = opsDecoder.Decode(&bar.Total)
+	if err != nil {
+		if *outfilePath != "" {
+			os.Remove(*outfilePath)
+		}
+		log.Fatalf("godelta: patch error: %#v\n", err)
+	}
+	if *debug {
+		log.Println("Rebuild file")
+	}
+	bar.Start()
 	opsCh := make(chan gsync.BlockOperation)
 	go func() {
 		defer close(opsCh)
@@ -223,11 +311,16 @@ func applyPatch(ctx context.Context) {
 				return
 			}
 			opsCh <- o
+			bar.Increment()
 		}
 	}()
 	err = gsync.Apply(ctx, outFile, srcFile, opsCh)
 	if err != nil {
 		log.Fatalln(err)
+	}
+	bar.Finish()
+	if *debug {
+		log.Println("done")
 	}
 }
 
