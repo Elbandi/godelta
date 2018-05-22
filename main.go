@@ -50,7 +50,7 @@ func generateFingerprint(ctx context.Context) {
 		}
 
 		if *debug {
-			log.Printf("chunk %05d: %08x, %s", c.Index, c.Weak, hex.Dump(c.Strong))
+			log.Printf("chunk %05d: %08x, %s", c.Index, c.Weak, hex.EncodeToString(c.Strong))
 		}
 		err = enc.Encode(c)
 		if err != nil {
