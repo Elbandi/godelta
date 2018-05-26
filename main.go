@@ -20,7 +20,7 @@ var (
 	outfilePath    = flag.String("out", "", "File path for output file")
 	progress       = flag.Bool("progress", false, "Show progress bar")
 	debug          = flag.Bool("debug", false, "debug mode")
-	blockSize      = flag.Int64("blocksize", 6*1024, "Block Size, default block size is 6KB")
+	blockSize      = flag.Int("blocksize", 6*1024, "Block Size, default block size is 6KB")
 )
 
 func generateFingerprint(ctx context.Context) {
@@ -43,7 +43,7 @@ func generateFingerprint(ctx context.Context) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bar := pb.New64(fi.Size() / *blockSize)
+	bar := pb.New64(fi.Size() / int64(*blockSize))
 	bar.SetRefreshRate(time.Second)
 	if *progress {
 		bar.Output = os.Stderr
@@ -95,7 +95,7 @@ func makeDiff(ctx context.Context) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bar := pb.New64(fi.Size() / *blockSize)
+	bar := pb.New64(fi.Size() / int64(*blockSize))
 	bar.SetRefreshRate(time.Second)
 	if *progress {
 		bar.Output = os.Stderr
@@ -159,7 +159,7 @@ func makeDiff(ctx context.Context) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		bar.SetTotal64(fi.Size() / *blockSize)
+		bar.SetTotal64(fi.Size() / int64(*blockSize))
 	} else {
 		inFile = os.Stdin
 		bar.SetTotal64(0);
