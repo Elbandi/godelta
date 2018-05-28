@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/gob"
 	"encoding/hex"
 	"flag"
@@ -175,7 +176,8 @@ func makeDiff(ctx context.Context) {
 	} else {
 		outFile = os.Stdout
 	}
-	opsCh, err := gsync.Sync(ctx, inFile, nil, cacheSigs)
+	datahash := sha256.New()
+	opsCh, err := gsync.Sync(ctx, inFile, nil, datahash, cacheSigs)
 	if err != nil {
 		if *outfilePath != "" {
 			os.Remove(*outfilePath)
@@ -233,6 +235,7 @@ func makeDiff(ctx context.Context) {
 	if *debug {
 		log.Println("done")
 	}
+	log.Println("Datahash: ", hex.EncodeToString(datahash.Sum(nil)))
 }
 
 func applyPatch(ctx context.Context) {
