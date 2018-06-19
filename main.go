@@ -317,7 +317,8 @@ func applyPatch(ctx context.Context) {
 			bar.Increment()
 		}
 	}()
-	err = gsync.Apply(ctx, outFile, srcFile, opsCh)
+	datahash := sha256.New()
+	err = gsync.Apply(ctx, outFile, srcFile, datahash, opsCh)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -325,6 +326,7 @@ func applyPatch(ctx context.Context) {
 	if *debug {
 		log.Println("done")
 	}
+	log.Println("Datahash: ", hex.EncodeToString(datahash.Sum(nil)))
 }
 
 func main() {
