@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
+	"crypto/rand"
 	"encoding/gob"
 	"encoding/hex"
 	"flag"
@@ -15,6 +18,10 @@ import (
 	"gopkg.in/cheggaaa/pb.v1"
 )
 
+const (
+	minKeyLength = 10;
+)
+
 var (
 	sourcefilePath = flag.String("file", "", "File path for base file, REQUIRED ")
 	infilePath     = flag.String("in", "", "File path for input file")
@@ -22,6 +29,7 @@ var (
 	progress       = flag.Bool("progress", false, "Show progress bar")
 	debug          = flag.Bool("debug", false, "debug mode")
 	blockSize      = flag.Int("blocksize", 6*1024, "Block Size, default block size is 6KB")
+	cryptKey       = flag.String("key", "", "Use this key to encrypt/decrypt")
 )
 
 func generateFingerprint(ctx context.Context) {
@@ -191,7 +199,25 @@ func makeDiff(ctx context.Context) {
 	bar.Set(0)
 	bar.Start()
 
-	enc := gob.NewEncoder(outFile)
+	var streamWriter io.Writer
+	if len(*cryptKey) > minKeyLength {
+		block, err := aes.NewCipher([]byte(*cryptKey))
+		if err != nil {
+			log.Fatalf("godelta: patch encrypt error: %#v\n", err)
+		}
+		iv := make([]byte, aes.BlockSize)
+		if _, err = rand.Read(iv[:]); err != nil {
+			log.Fatalf("godelta: patch encrypt error: %#v\n", err)
+		} else if _, err = outFile.Write(iv); err != nil {
+			log.Fatalf("godelta: patch encrypt error: %#v\n", err)
+		}
+		stream := cipher.NewOFB(block, iv[:])
+		streamWriter = &cipher.StreamWriter{S: stream, W: outFile}
+	} else {
+		streamWriter = outFile
+	}
+
+	enc := gob.NewEncoder(streamWriter)
 	err = enc.Encode(bar.Total)
 	if err != nil {
 		if *outfilePath != "" {
@@ -274,7 +300,24 @@ func applyPatch(ctx context.Context) {
 	} else {
 		bar.NotPrint = true
 	}
-	opsDecoder := gob.NewDecoder(inFile)
+
+	var streamReader io.Reader
+	if len(*cryptKey) > minKeyLength {
+		block, err := aes.NewCipher([]byte(*cryptKey))
+		if err != nil {
+			log.Fatalf("godelta: patch decrypt error: %#v\n", err)
+		}
+		iv := make([]byte, aes.BlockSize)
+		if _, err = inFile.Read(iv[:]); err != nil {
+			log.Fatalf("godelta: patch decrypt error: %#v\n", err)
+		}
+		stream := cipher.NewOFB(block, iv[:])
+		streamReader = &cipher.StreamReader{S: stream, R: inFile}
+	} else {
+		streamReader = inFile
+	}
+
+	opsDecoder := gob.NewDecoder(streamReader)
 	err = opsDecoder.Decode(&bar.Total)
 	if err != nil {
 		if *outfilePath != "" {
